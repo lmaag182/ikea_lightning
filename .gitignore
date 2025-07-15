@@ -1,0 +1,44 @@
+# Python-specific ignores
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDE / Editor files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# macOS
+.DS_Store
+
+# Miscellaneous
+temp/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# Project-specific
+zigbee_activity.log 
