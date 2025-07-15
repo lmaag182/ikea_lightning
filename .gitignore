@@ -41,4 +41,4 @@ tmp/
 *~
 
 # Project-specific
-zigbee_activity.log 
+zigbee_activity.log *.log
