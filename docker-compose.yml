@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  mqtt-logger:
+    build: .
+    container_name: mqtt-logger
+    environment:
+      - MQTT_BROKER=192.168.50.161
+    volumes:
+      - .:/app  # Mount for logs and code changes
+    network_mode: host  # Use host networking to access external services
+    restart: unless-stopped 

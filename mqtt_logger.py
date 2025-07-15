@@ -2,9 +2,10 @@ import paho.mqtt.client as mqtt
 import logging
 import json
 from datetime import datetime
+import os
 
 # --- Configuration ---
-MQTT_BROKER = "192.168.50.161"
+MQTT_BROKER = os.environ.get('MQTT_BROKER', '192.168.50.161')
 MQTT_PORT = 1883
 DEVICE_INFO_TOPIC = "zigbee2mqtt/bridge/devices"
 DEVICE_MOTION_SENSOR_LIVING_ROOM = "zigbee2mqtt/0x8c65a3fffe868d86"
@@ -72,12 +73,12 @@ def on_message(client, userdata, msg):
                 command = json.dumps({"state": "ON"})
                 client.publish(lamp_topic, command)
                 print(f"Sent ON command to {lamp_topic} via shiny button")
-                ignore_motion = False
+                ignore_motion = True
             elif action == "off":
                 command = json.dumps({"state": "OFF"})
                 client.publish(lamp_topic, command)
                 print(f"Sent OFF command to {lamp_topic} via shiny button")
-                ignore_motion = True
+                ignore_motion = False
 
         # If it's device information, pretty print it
         if msg.topic == DEVICE_INFO_TOPIC:
