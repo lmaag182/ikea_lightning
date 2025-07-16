@@ -3,6 +3,7 @@ import logging
 import json
 from datetime import datetime
 import os
+from logging.handlers import RotatingFileHandler
 
 # --- Configuration ---
 MQTT_BROKER = os.environ.get('MQTT_BROKER', '192.168.50.161')
@@ -17,8 +18,11 @@ LOG_FILE = "zigbee_activity.log"
 ignore_motion = False
 
 # --- Set up logging ---
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, 
-                    format='%(asctime)s - %(message)s')
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=1)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+logger.addHandler(handler)
 
 # --- MQTT Callbacks ---
 def on_connect(client, userdata, flags, rc):
