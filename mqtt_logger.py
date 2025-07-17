@@ -2,121 +2,122 @@ import paho.mqtt.client as mqtt
 import logging
 import json
 from datetime import datetime
-import os
 from logging.handlers import RotatingFileHandler
-
-# --- Configuration ---
-MQTT_BROKER = os.environ.get('MQTT_BROKER', '192.168.50.161')
-MQTT_PORT = 1883
-DEVICE_INFO_TOPIC = "zigbee2mqtt/bridge/devices"
-DEVICE_MOTION_SENSOR_LIVING_ROOM = "zigbee2mqtt/0x8c65a3fffe868d86"
-DEVICE_MOTION_SENSOR_TEST = "zigbee2mqtt/motion_sensor_test"
-DEVICE_SHINY_BUTTON = "zigbee2mqtt/shiny_4_button"
-LOG_TOPIC = "zigbee2mqtt/#"
-LOG_FILE = "zigbee_activity.log"
-
-ignore_motion = False
+import config
+import sys
+import argparse
 
 # --- Set up logging ---
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=1)
-handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-logger.addHandler(handler)
+def setup_logging(log_level):
+    logger = logging.getLogger()
+    logger.setLevel(log_level)
+
+    # File handler
+    file_handler = RotatingFileHandler(config.LOG_FILE, maxBytes=config.LOG_MAX_BYTES, backupCount=config.LOG_BACKUP_COUNT)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(console_handler)
+
+
+# --- Message Handlers ---
+def handle_motion_sensor(client, payload_str):
+    """Handles messages from the living room motion sensor."""
+    payload = json.loads(payload_str)
+    logging.info(f"Motion sensor update: {payload}")
+    if not config.ignore_motion:
+        state = "ON" if payload.get("occupancy") else "OFF"
+        command = json.dumps({"state": state})
+        client.publish(config.LAMP_LIVINGROOM_TOPIC, command)
+        logging.info(f"Sent {state} command to {config.LAMP_LIVINGROOM_TOPIC}")
+
+def handle_shiny_button(client, payload_str):
+    """Handles messages from the shiny button."""
+    payload = json.loads(payload_str)
+    action = payload.get("action")
+    logging.info(f"Shiny button action: {action}")
+    if action in ["on", "off"]:
+        state = "ON" if action == "on" else "OFF"
+        command = json.dumps({"state": state})
+        client.publish(config.LAMP_LIVINGROOM_TOPIC, command)
+        logging.info(f"Sent {state} command to {config.LAMP_LIVINGROOM_TOPIC} via shiny button")
+        config.ignore_motion = (action == "on")
+
+def handle_device_info(payload_str):
+    """Handles device information messages."""
+    try:
+        devices = json.loads(payload_str)
+        logging.info("\n--- Zigbee Device Information ---")
+        for device in devices:
+            if device.get('friendly_name'):
+                logging.info(f"  - Friendly Name: {device['friendly_name']}")
+                logging.info(f"    IEEE Address: {device['ieee_address']}")
+                if 'definition' in device and device['definition']:
+                    logging.info(f"    Model: {device['definition']['model']}")
+                    logging.info(f"    Vendor: {device['definition']['vendor']}")
+        logging.info("------------------------------------\n")
+    except json.JSONDecodeError:
+        logging.error("Could not decode device information JSON.")
 
 # --- MQTT Callbacks ---
 def on_connect(client, userdata, flags, rc):
     """Callback for when the client connects to the broker."""
     if rc == 0:
-        print("Connected to MQTT Broker!")
-        client.subscribe([(DEVICE_INFO_TOPIC, 0), (LOG_TOPIC, 0)])
-        print(f"Subscribed to {DEVICE_INFO_TOPIC} and {LOG_TOPIC}")
+        logging.info("Connected to MQTT Broker!")
+        client.subscribe([(config.DEVICE_INFO_TOPIC, 0), (config.LOG_TOPIC, 0)])
+        logging.info(f"Subscribed to {config.DEVICE_INFO_TOPIC} and {config.LOG_TOPIC}")
     else:
-        print(f"Failed to connect, return code {rc}\n")
+        logging.error(f"Failed to connect, return code {rc}\n")
 
 def on_message(client, userdata, msg):
     """Callback for when a message is received from the broker."""
-    global ignore_motion
     try:
-        # Get the current time
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Decode the message payload
         payload_str = msg.payload.decode("utf-8")
-        
-        # Log the raw message
-        log_message = f"Topic: {msg.topic} | Payload: {payload_str}"
-        logging.info(log_message)
-        #print(f"Logged: {log_message}")
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "topic": msg.topic,
+            "payload": payload_str
+        }
+        logging.info(json.dumps(log_entry))
 
-        if msg.topic == DEVICE_MOTION_SENSOR_LIVING_ROOM:
+        if msg.topic == config.DEVICE_MOTION_SENSOR_LIVING_ROOM:
+            handle_motion_sensor(client, payload_str)
+        elif msg.topic == config.DEVICE_SHINY_BUTTON:
+            handle_shiny_button(client, payload_str)
+        elif msg.topic == config.DEVICE_INFO_TOPIC:
+            handle_device_info(payload_str)
+        elif msg.topic == config.DEVICE_MOTION_SENSOR_TEST:
             payload = json.loads(payload_str)
-            print(f"DEVICE_MOTION_SENSOR_LIVING_ROOM:{payload['occupancy']}")
-            if not ignore_motion:
-                # Switch on or off the lamp based on occupancy
-                if payload.get("occupancy") is True:
-                    lamp_topic = "zigbee2mqtt/lamp_livingroom/set"
-                    command = json.dumps({"state": "ON"})
-                    client.publish(lamp_topic, command)
-                    print(f"Sent ON command to {lamp_topic}")
-                elif payload.get("occupancy") is False:
-                    lamp_topic = "zigbee2mqtt/lamp_livingroom/set"
-                    command = json.dumps({"state": "OFF"})
-                    client.publish(lamp_topic, command)
-                    print(f"Sent OFF command to {lamp_topic}")
-
-        if msg.topic == DEVICE_MOTION_SENSOR_TEST:
-            payload = json.loads(payload_str)
-            print(f"DEVICE_MOTION_SENSOR_TEST:{payload["occupancy"]}")
-
-        if msg.topic == DEVICE_SHINY_BUTTON:
-            payload = json.loads(payload_str)
-            action = payload.get("action")
-            lamp_topic = "zigbee2mqtt/lamp_livingroom/set"
-            if action == "on":
-                command = json.dumps({"state": "ON"})
-                client.publish(lamp_topic, command)
-                print(f"Sent ON command to {lamp_topic} via shiny button")
-                ignore_motion = True
-            elif action == "off":
-                command = json.dumps({"state": "OFF"})
-                client.publish(lamp_topic, command)
-                print(f"Sent OFF command to {lamp_topic} via shiny button")
-                ignore_motion = False
-
-        # If it's device information, pretty print it
-        if msg.topic == DEVICE_INFO_TOPIC:
-            try:
-                devices = json.loads(payload_str)
-                print("\n--- Zigbee Device Information ---")
-                for device in devices:
-                    if device.get('friendly_name'):
-                        print(f"  - Friendly Name: {device['friendly_name']}")
-                        print(f"    IEEE Address: {device['ieee_address']}")
-                        if 'definition' in device and device['definition']:
-                            print(f"    Model: {device['definition']['model']}")
-                            print(f"    Vendor: {device['definition']['vendor']}")
-                print("------------------------------------\n")
-            except json.JSONDecodeError:
-                print("Could not decode device information JSON.")
+            logging.info(f"Test motion sensor update: {payload}")
 
     except Exception as e:
-        print(f"An error occurred in on_message: {e}")
+        logging.error(f"An error occurred in on_message: {e}")
 
 
 # --- Main script ---
-if __name__ == "__main__":
-    # Create MQTT client
+def main():
+    parser = argparse.ArgumentParser(description="MQTT Logger for Zigbee devices.")
+    parser.add_argument("--broker", default=config.MQTT_BROKER, help="MQTT broker address.")
+    parser.add_argument("--port", type=int, default=config.MQTT_PORT, help="MQTT broker port.")
+    parser.add_argument("--log-level", default=config.LOG_LEVEL, help="Logging level (e.g., INFO, DEBUG).")
+    args = parser.parse_args()
+
+    setup_logging(args.log_level)
+
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_message
 
-    # Connect to the broker
     try:
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.connect(args.broker, args.port, 60)
     except Exception as e:
-        print(f"Error connecting to MQTT Broker: {e}")
+        logging.error(f"Error connecting to MQTT Broker: {e}")
         exit()
 
-    # Start the network loop
     client.loop_forever()
+
+if __name__ == "__main__":
+    main()
